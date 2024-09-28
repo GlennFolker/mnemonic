@@ -13,6 +13,7 @@ dev = [
 [dependencies]
 bevy_asset_loader = { version = "0.21", features = ["progress_tracking"] }
 iyes_progress = "0.12"
+nom = "7"
 
 bitflags = "2"
 mimalloc = "*"

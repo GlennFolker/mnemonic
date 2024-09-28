@@ -1,5 +1,6 @@
 pub mod def;
 pub mod loader;
+pub mod parser;
 
 use bevy::prelude::*;
 use def::{Mtl, Obj, ObjCollection};
