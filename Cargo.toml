@@ -1,0 +1,35 @@
+[package]
+name = "mnemonic"
+version = "0.1.0"
+authors = ["GlFolker <glenn.folk08@gmail.com>"]
+edition = "2021"
+rust-version = "1.81"
+
+[features]
+dev = [
+    "bevy/file_watcher",
+]
+
+[dependencies]
+bevy_asset_loader = { version = "0.21", features = ["progress_tracking"] }
+iyes_progress = "0.12"
+
+bitflags = "2"
+mimalloc = "*"
+serde = { version = "1", features = ["derive"] }
+thiserror = "1"
+
+[dependencies.bevy]
+version = "0.14"
+default-features = false
+features = [
+    "bevy_pbr",
+    "bevy_state",
+    "bevy_winit",
+    "android_shared_stdcxx",
+    "png",
+    "multi_threaded",
+    "wayland",
+    "x11",
+    "webgpu",
+]
