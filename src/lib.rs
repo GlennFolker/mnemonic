@@ -76,20 +76,20 @@ fn print(
         ),
         material: materials.add(StandardMaterial {
             base_color_texture: mtl.diffuse_texture.as_ref().map(Handle::clone_weak),
-            unlit: true,
             ..default()
         }),
         ..default()
     });
 
     commands.spawn(Camera3dBundle {
-        transform: Transform::from_xyz(-2.0, 2.0, -2.0).looking_at(Vec3::ZERO, Dir3::Y),
+        camera: Camera { hdr: true, ..default() },
+        transform: Transform::from_xyz(0.5, 1.0, -1.5).looking_at(Vec3::ZERO, Vec3::Y),
         tonemapping: Tonemapping::None,
         ..default()
     });
 
     commands.spawn(DirectionalLightBundle {
-        transform: Transform::from_xyz(5.0, 5.0, 5.0).looking_at(Vec3::ZERO, Dir3::Y),
+        transform: Transform::from_xyz(0.5, 1.0, -1.5).looking_at(Vec3::ZERO, Vec3::Y),
         ..default()
     });
 }
