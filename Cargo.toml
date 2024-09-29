@@ -8,9 +8,11 @@ rust-version = "1.81"
 [features]
 dev = [
     "bevy/file_watcher",
+    "avian3d/debug-plugin",
 ]
 
 [dependencies]
+avian3d = { version = "0.1", features = ["3d", "f32", "simd", "parallel", "collider-from-mesh"] }
 bevy_asset_loader = { version = "0.21", features = ["progress_tracking"] }
 iyes_progress = "0.12"
 nom = "7"

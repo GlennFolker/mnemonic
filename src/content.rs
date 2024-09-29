@@ -5,6 +5,6 @@ use crate::obj::def::Obj;
 
 #[derive(AssetCollection, Resource)]
 pub struct Tiles {
-    #[asset(path = "tiles/liminal/floor.obj#obj-tile")]
+    #[asset(path = "tiles/liminal/floor.obj#obj:tile")]
     pub liminal_floor: Handle<Obj>,
 }
