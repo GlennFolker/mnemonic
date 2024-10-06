@@ -8,17 +8,20 @@ rust-version = "1.81"
 [features]
 dev = [
     "bevy/file_watcher",
+    "bevy_mod_picking/debug",
     "avian3d/debug-plugin",
 ]
 
 [dependencies]
 avian3d = { version = "0.1", features = ["3d", "f32", "simd", "parallel", "collider-from-mesh"] }
 bevy_asset_loader = { version = "0.21", features = ["progress_tracking"] }
+bevy_mod_picking = { version = "0.20", default-features = false, features = ["backend_bevy_ui", "bevy_picking_avian"] }
 iyes_progress = "0.12"
 nom = "7"
 
 bitflags = "2"
 mimalloc = "*"
+nonmax = "0.5"
 serde = { version = "1", features = ["derive"] }
 thiserror = "1"
 
@@ -28,6 +31,7 @@ default-features = false
 features = [
     "bevy_pbr",
     "bevy_state",
+    "bevy_ui",
     "bevy_winit",
     "android_shared_stdcxx",
     "png",

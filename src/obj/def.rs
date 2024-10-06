@@ -1,20 +1,32 @@
-use bevy::prelude::*;
+use bevy::{prelude::*, utils::HashMap};
 use bitflags::bitflags;
 
-#[derive(Asset, TypePath)]
+#[derive(Asset, TypePath, Deref)]
 pub struct ObjCollection {
-    #[dependency]
-    pub objects: Vec<Handle<Obj>>,
-    #[dependency]
-    pub materials: Vec<Handle<StandardMaterial>>,
+    #[deref]
+    pub objects: HashMap<String, Handle<Obj>>,
 }
 
 #[derive(Asset, TypePath, Default)]
 pub struct Obj {
     #[dependency]
-    pub material: Handle<StandardMaterial>,
-    pub vertices: Vec<(Vec3, Vec2, Vec3)>,
+    pub material: Handle<MtlCollection>,
+    pub material_key: String,
+    pub positions: Vec<Vec3>,
+    pub uvs: Vec<Vec2>,
+    pub normals: Vec<Vec3>,
     pub faces: Vec<[usize; 3]>,
+}
+
+#[derive(Asset, TypePath, Deref, DerefMut)]
+pub struct MtlCollection {
+    #[deref]
+    pub materials: HashMap<String, Mtl>,
+}
+
+#[derive(TypePath, Default)]
+pub struct Mtl {
+    pub diffuse_texture: Option<Handle<Image>>,
 }
 
 bitflags! {

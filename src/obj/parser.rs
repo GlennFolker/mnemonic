@@ -61,7 +61,7 @@ pub fn index<'a, E: ParseError<&'a str> + ContextError<&'a str>>(input: &'a str)
 }
 
 pub fn id<'a, E: ParseError<&'a str> + ContextError<&'a str>>(input: &'a str) -> IResult<&'a str, &'a str, E> {
-    take_while(|c| matches!(c, '-' | '_' | '.') || c.is_alphanumeric())(input)
+    take_while(|c| matches!(c, '-' | '_' | '.' | '/') || c.is_alphanumeric())(input)
 }
 
 pub fn obj_comment<'a, E: ParseError<&'a str> + ContextError<&'a str>>(

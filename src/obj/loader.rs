@@ -1,10 +1,7 @@
-use std::io::{Error as IoError, ErrorKind as IoErrorKind};
+use std::io::Error as IoError;
 
 use bevy::{
-    asset::{
-        io::Reader, AssetLoader, AsyncReadExt, LoadContext, LoadDirectError, LoadedAsset, ParseAssetPathError,
-        ReadAssetBytesError,
-    },
+    asset::{io::Reader, AssetLoader, AsyncReadExt, LoadContext, LoadDirectError, ParseAssetPathError},
     prelude::*,
     utils::{hashbrown::hash_map::EntryRef, Entry, HashMap},
 };
@@ -15,8 +12,11 @@ use nom::{
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-use super::def::{Obj, ObjCollection};
-use crate::obj::parser::{parse_mtl, parse_obj, MtlDirective, ObjDirective};
+use super::def::{MtlCollection, Obj, ObjCollection};
+use crate::obj::{
+    def::Mtl,
+    parser::{parse_mtl, parse_obj, MtlDirective, ObjDirective},
+};
 
 #[derive(Error, Debug)]
 pub enum ObjError {
@@ -24,10 +24,6 @@ pub enum ObjError {
     OutOfRangeIndex { index: usize, max: usize },
     #[error("Duplicated object '{0}'.")]
     DuplicateObj(String),
-    #[error("Duplicated material '{0}'.")]
-    DuplicateMtl(String),
-    #[error("Material with name '{0}' not found.")]
-    UnknownMtl(String),
     #[error("Missing `{0}`.")]
     Missing(&'static str),
     #[error("Multiple `{0}` is not supported.")]
@@ -38,10 +34,6 @@ pub enum ObjError {
     Syntax(String),
     #[error(transparent)]
     InvalidPath(#[from] ParseAssetPathError),
-    #[error(transparent)]
-    InvalidMtllib(#[from] ReadAssetBytesError),
-    #[error(transparent)]
-    InvalidImage(#[from] LoadDirectError),
     #[error(transparent)]
     Io(#[from] IoError),
 }
@@ -97,8 +89,8 @@ impl AssetLoader for ObjLoader {
                 (Vec<Vec3>, Vec<Vec2>, Vec<Vec3>, HashMap<[usize; 3], usize>),
             ),
         >::new();
-        let mut materials = None::<HashMap<String, (String, LoadedAsset<StandardMaterial>)>>;
 
+        let mut material = None;
         let mut cull = false;
         let mut current_obj = None;
 
@@ -114,63 +106,12 @@ impl AssetLoader for ObjLoader {
                     }
                 }
                 ObjDirective::Mtllib(mtllib) => {
-                    if materials.is_some() {
+                    if material.is_some() {
                         return Err(ObjError::Multiple("mtllib"))
                     }
 
                     let mtllib_path = path.resolve_embed(mtllib)?;
-                    let file = String::from_utf8(load_context.read_asset_bytes(&mtllib_path).await?).map_err(|e| {
-                        ReadAssetBytesError::Io {
-                            path: mtllib_path.into(),
-                            source: IoError::new(IoErrorKind::InvalidData, format!("{e}")),
-                        }
-                    })?;
-
-                    let mut mtls = HashMap::<String, (StandardMaterial, LoadContext)>::new();
-                    let mut current_mtl = None;
-
-                    for dir in parse_mtl(&file).map_err(|e| parse_error(e, &file))?.1 {
-                        match dir {
-                            MtlDirective::Comment(..) => continue,
-                            MtlDirective::Newmtl(newmtl) => {
-                                current_mtl = match mtls.entry_ref(newmtl) {
-                                    EntryRef::Occupied(..) => return Err(ObjError::DuplicateMtl(newmtl.into())),
-                                    EntryRef::Vacant(e) => Some(e.insert((
-                                        StandardMaterial {
-                                            reflectance: 0.0,
-                                            ..default()
-                                        },
-                                        load_context.begin_labeled_asset(),
-                                    ))),
-                                };
-                            }
-                            MtlDirective::MapKd(map_kd) => {
-                                let (current_mtl, mtl_loader) = current_mtl.as_mut().ok_or(ObjError::Missing("mtllib"))?;
-                                if current_mtl.base_color_texture.is_some() {
-                                    return Err(ObjError::Multiple("map_Kd"))
-                                }
-
-                                let image = mtl_loader
-                                    .loader()
-                                    .direct()
-                                    .load::<Image>(path.resolve_embed(map_kd)?)
-                                    .await?;
-
-                                current_mtl.base_color_texture = Some(mtl_loader.add_loaded_labeled_asset("map_Kd", image));
-                            }
-                        }
-                    }
-
-                    materials = Some({
-                        let mut materials = HashMap::with_capacity(mtls.len());
-                        for (id, (mtl, mtl_loader)) in mtls {
-                            let mtl = mtl_loader.finish(mtl, None);
-                            let label = format!("mtl:{id}");
-                            materials.insert_unique_unchecked(id, (label, mtl));
-                        }
-
-                        materials
-                    });
+                    material = Some(load_context.load(mtllib_path));
                 }
                 ObjDirective::O(o) => {
                     current_obj = match objects.entry_ref(o) {
@@ -210,7 +151,7 @@ impl AssetLoader for ObjLoader {
                             Vec<Vec3>,
                             HashMap<[usize; 3], usize>,
                         ),
-                        obj_vertices: &mut Vec<(Vec3, Vec2, Vec3)>,
+                        obj_vertices: (&mut Vec<Vec3>, &mut Vec<Vec2>, &mut Vec<Vec3>),
                     ) -> Result<usize, ObjError> {
                         match vertices.entry([position, uv, normal]) {
                             Entry::Occupied(vertex) => Ok::<usize, ObjError>(*vertex.get()),
@@ -230,8 +171,12 @@ impl AssetLoader for ObjLoader {
                                     }),
                                 );
 
-                                let len = obj_vertices.len();
-                                obj_vertices.push((position?, uv?, normal?));
+                                let (positions, uvs, normals) = obj_vertices;
+                                let len = positions.len();
+
+                                positions.push(position?);
+                                uvs.push(uv?);
+                                normals.push(normal?);
 
                                 Ok(*e.insert(len))
                             }
@@ -246,12 +191,24 @@ impl AssetLoader for ObjLoader {
                     };
 
                     vertices = rest;
-                    let a = vertex(a, builder, &mut current_obj.vertices)?;
+                    let a = vertex(
+                        a,
+                        builder,
+                        (&mut current_obj.positions, &mut current_obj.uvs, &mut current_obj.normals),
+                    )?;
 
                     loop {
                         current_obj.faces.push([
-                            vertex(b, builder, &mut current_obj.vertices)?,
-                            vertex(c, builder, &mut current_obj.vertices)?,
+                            vertex(
+                                b,
+                                builder,
+                                (&mut current_obj.positions, &mut current_obj.uvs, &mut current_obj.normals),
+                            )?,
+                            vertex(
+                                c,
+                                builder,
+                                (&mut current_obj.positions, &mut current_obj.uvs, &mut current_obj.normals),
+                            )?,
                             a,
                         ]);
 
@@ -267,36 +224,110 @@ impl AssetLoader for ObjLoader {
             }
         }
 
-        let materials = {
-            let from = materials.ok_or(ObjError::Missing("mtllib"))?;
-            let mut materials = HashMap::with_capacity(from.len());
-            for (id, (label, mtl)) in from {
-                materials.insert_unique_unchecked(id, load_context.add_loaded_labeled_asset(label, mtl));
-            }
-
-            materials
-        };
-
-        let objects = objects
-            .into_iter()
-            .try_fold(Vec::new(), |mut objects, (id, (mut obj, mtl, ..))| {
-                let mtl = mtl.ok_or(ObjError::Missing("usemtl"))?;
-                obj.material = materials.get(mtl).ok_or_else(|| ObjError::UnknownMtl(mtl.into()))?.clone();
-
+        let material = material.ok_or(ObjError::Missing("mtllib"))?;
+        let objects = {
+            let mut mapped = HashMap::with_capacity(objects.len());
+            for (id, (mut obj, mtl, ..)) in objects {
+                obj.material = material.clone();
+                obj.material_key = mtl.ok_or(ObjError::Missing("usemtl"))?.into();
                 if cull {
                     obj.calculate_culls();
                 }
 
-                objects.push(load_context.labeled_asset_scope(format!("obj:{id}"), |_| obj));
-                Ok::<_, ObjError>(objects)
-            })?;
+                let label = format!("obj:{id}");
+                mapped.insert_unique_unchecked(id, load_context.labeled_asset_scope(label, |_| obj));
+            }
 
-        let materials = materials.into_values().collect();
-        Ok(ObjCollection { objects, materials })
+            mapped
+        };
+
+        Ok(ObjCollection { objects })
     }
 
     #[inline]
     fn extensions(&self) -> &[&str] {
         &["obj"]
+    }
+}
+
+#[derive(Error, Debug)]
+pub enum MtlError {
+    #[error("Missing `{0}`.")]
+    Missing(&'static str),
+    #[error("Multiple `{0}` is not supported.")]
+    Multiple(&'static str),
+    #[error("Duplicated material '{0}'.")]
+    DuplicateMtl(String),
+    #[error("Syntax error:\n{0}")]
+    Syntax(String),
+    #[error(transparent)]
+    InvalidImage(#[from] LoadDirectError),
+    #[error(transparent)]
+    InvalidPath(#[from] ParseAssetPathError),
+    #[error(transparent)]
+    Io(#[from] IoError),
+}
+
+pub struct MtlLoader;
+impl AssetLoader for MtlLoader {
+    type Asset = MtlCollection;
+    type Settings = ();
+    type Error = MtlError;
+
+    async fn load<'a>(
+        &'a self,
+        reader: &'a mut Reader<'_>,
+        _: &'a Self::Settings,
+        load_context: &'a mut LoadContext<'_>,
+    ) -> Result<Self::Asset, Self::Error> {
+        #[inline]
+        fn parse_error(e: nom::Err<VerboseError<&str>>, data: &str) -> MtlError {
+            MtlError::Syntax(match e {
+                nom::Err::Error(e) | nom::Err::Failure(e) => convert_error(data, e),
+                nom::Err::Incomplete(Needed::Unknown) => "Unexpected EoF.".into(),
+                nom::Err::Incomplete(Needed::Size(size)) => format!("Unexpected EoF: Needed {size} more characters."),
+            })
+        }
+
+        let mut file = String::new();
+        reader.read_to_string(&mut file).await?;
+
+        let path = load_context.asset_path().clone();
+
+        let mut mtls = HashMap::<String, Mtl>::new();
+        let mut current_mtl = None;
+
+        for dir in parse_mtl(&file).map_err(|e| parse_error(e, &file))?.1 {
+            match dir {
+                MtlDirective::Comment(..) => continue,
+                MtlDirective::Newmtl(newmtl) => {
+                    current_mtl = match mtls.entry_ref(newmtl) {
+                        EntryRef::Occupied(..) => return Err(MtlError::DuplicateMtl(newmtl.into())),
+                        EntryRef::Vacant(e) => Some(e.insert(Mtl::default())),
+                    };
+                }
+                MtlDirective::MapKd(map_kd) => {
+                    let current_mtl = current_mtl.as_mut().ok_or(MtlError::Missing("mtllib"))?;
+                    if current_mtl.diffuse_texture.is_some() {
+                        return Err(MtlError::Multiple("map_Kd"))
+                    }
+
+                    let image = load_context
+                        .loader()
+                        .direct()
+                        .load::<Image>(path.resolve_embed(map_kd)?)
+                        .await?;
+
+                    current_mtl.diffuse_texture = Some(load_context.add_loaded_labeled_asset("map_Kd", image));
+                }
+            }
+        }
+
+        Ok(MtlCollection { materials: mtls })
+    }
+
+    #[inline]
+    fn extensions(&self) -> &[&str] {
+        &["mtl"]
     }
 }
